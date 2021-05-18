@@ -1,98 +1,93 @@
 import cp from "child_process";
 
-// to be filled
-const options = {
-	mergedTrack: "songs.mp3", // required
-	outputDir: "out/", // directory, where to put the tracks (with all the required slashes)
-	ffmpegPath: "ffmpeg", // path to ffmpeg.exe
-	artist: "ARTIST", // meta info, optional
-	album: "ALBUM", // meta info, optional
-	trackNames: [], // meta info, optional
-	maxNoiseLevel: -40, // silence is defined below this dB value
-	minSilenceLength: 1.4, // (sec) we are searching for silence intervals at least of this lenght
-	minSongLength: 20, // (sec) if a track is sorter than this, we merge it to the previous track
-} as any;
-
-// variables, utilities
-var pattern = /silence_start: ([\w\.]+)[\s\S]+?silence_end: ([\w\.]+)/g;
-var extension = options.mergedTrack.match(/\w+$/)![0];
-var detectCommand =
-	options.ffmpegPath +
-	' -i "' +
-	options.mergedTrack +
-	'" -af silencedetect=noise=' +
-	options.maxNoiseLevel +
-	"dB:d=" +
-	options.minSilenceLength +
-	" -f null -";
-var convertCommand = function (i: any, secStart: any, secLength: any) {
-	var ss = new Date(Math.max(0, parseInt((secStart * 1000).toString()) - 1))
-		.toISOString()
-		.substr(11, 8);
-	var trackName = options.trackNames[i - 1] || "song" + (i < 10 ? "0" + i : i);
-	return (
-		options.ffmpegPath +
-		' -ss "' +
-		ss +
-		'" -t ' +
-		parseInt(secLength + 3) +
-		' -i "' +
-		options.mergedTrack +
-		'" -metadata title="' +
-		trackName +
-		'" -metadata artist="' +
-		options.artist +
-		'" -metadata album="' +
-		options.artist +
-		'" -c:a copy "' +
-		options.outputDir +
-		trackName +
-		"." +
-		extension +
-		'"'
-	);
+export type SplitterParams = {
+	mergedTrack: string; // source track
+	outputDir: string; // directory, where to put the tracks (with all the required slashes)
+	ffmpegPath?: string; // path to ffmpeg.exe
+	artist?: string; // meta info, optional
+	album?: string; // meta info, optional
+	trackNames?: string[]; // meta info, optional
+	maxNoiseLevel?: number; // silence is defined below this dB value
+	minSilenceLength?: number; // (sec) we are searching for silence intervals at least of this lenght
+	minSongLength?: number; // (sec) if a track is sorter than this, we merge it to the previous track
 };
 
-// running silence detection
-console.info("Start splitting, options: ");
-for (var key in options) console.log("  " + key + " = " + options[key]);
-console.log(
-	"Running silence detection, waiting for the output (be patient):\n  " +
-		detectCommand +
-		"\n"
-);
-var out = cp.spawnSync(detectCommand, {
-	stdio: "pipe",
-	shell: process.env.ComSpec,
-});
-out = out.output.toString() as any;
+export async function splitAudio(params: SplitterParams): Promise<void> {
+	params.ffmpegPath = params.ffmpegPath || "ffmpeg";
+	params.maxNoiseLevel = params.maxNoiseLevel || -40;
+	params.minSilenceLength = params.minSilenceLength || 0.2;
+	params.minSongLength = params.minSongLength || 20;
 
-// extracting tracks
-var m,
-	cmd,
-	lastT = 0,
-	counter = 0;
-while ((m = pattern.exec(out as any))) {
-	var len = (m as any)[1] - lastT;
-	if (len < options.minSongLength) {
-		// song is too short -> merge it to the previous one
-		continue;
+	const extensionMatch = params.mergedTrack.match(/\w+$/);
+	if (!extensionMatch) throw new Error(`invalid 'mergedTrack' param`);
+	const fileExtension = extensionMatch[0];
+
+	var out = cp.spawnSync(
+		params.ffmpegPath,
+		[
+			"-i",
+			params.mergedTrack,
+			"-af",
+			`silencedetect=noise=${params.maxNoiseLevel}dB:d=${params.minSilenceLength}`,
+			"-f",
+			"null",
+			"-",
+		],
+		{
+			stdio: "pipe",
+			shell: process.env.ComSpec,
+		}
+	);
+
+	const outString = out.output.toString();
+
+	const splitPattern = /silence_start: ([\w\.]+)[\s\S]+?silence_end: ([\w\.]+)/g;
+	var silenceInfo: RegExpExecArray | null;
+	var lastTrackEnd = 0;
+	var index = 0;
+	while ((silenceInfo = splitPattern.exec(outString))) {
+		const [_, silenceStart, silenceEnd] = silenceInfo;
+		console.log("silenceStart", silenceStart);
+		console.log("silenceEnd", silenceEnd);
+
+		const trackLength = parseInt(silenceStart) - lastTrackEnd;
+		if (trackLength < params.minSongLength) {
+			// TODO: seems like short trackings is beeing merging in the next one
+			// song is too short -> merge it to the previous one
+			continue;
+		}
+
+		const trackName =
+			params.trackNames?.[index] || `Track ${index.toString().padStart(2, "0")}`;
+		const ss = new Date(Math.max(0, lastTrackEnd * 1000)) // TODO: get silence middle
+			.toISOString()
+			.substr(11, 8);
+
+		const splitOptions = [
+			"-ss",
+			ss,
+			"-t",
+			// TODO: get silence middle
+			(trackLength + 0.4).toString(),
+			"-i",
+			params.mergedTrack,
+			"-metadata",
+			`title="${trackName}"`,
+			params.artist ? `-metadata artist="${params.artist}"` : "",
+			params.album ? `-metadata album="${params.album}"` : "",
+			"-c:a",
+			"copy",
+			`${params.outputDir + trackName}.${fileExtension}`,
+		].filter((param) => !!param);
+
+		console.log(trackName, splitOptions.join(" "));
+
+		cp.spawnSync(params.ffmpegPath, splitOptions, {
+			stdio: "inherit",
+			shell: process.env.ComSpec,
+		});
+
+		index++;
+		lastTrackEnd = parseInt(silenceEnd);
 	}
-	cmd = convertCommand(++counter, lastT, len);
-	console.log("\n\nExtracting track:\n  " + cmd + "\n");
-	cp.spawnSync(cmd, {
-		stdio: "inherit",
-		shell: process.env.ComSpec,
-	});
-	lastT = m[2] as any;
 }
-
-// extracting last track
-cmd = convertCommand(++counter, lastT, 9999);
-console.log("\n\nRunning command:\n  " + cmd + "\n");
-cp.spawnSync(cmd, {
-	stdio: "inherit",
-	shell: process.env.ComSpec,
-});
-
-console.info("\nAll done.");
