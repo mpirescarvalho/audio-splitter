@@ -91,3 +91,5 @@ export async function splitAudio(params: SplitterParams): Promise<void> {
 		lastTrackEnd = parseInt(silenceEnd);
 	}
 }
+
+//TODO: last track is missing
