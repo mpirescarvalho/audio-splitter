@@ -50,6 +50,7 @@ export async function autoSplitAudio(
 	var index = 0;
 	while ((silenceInfo = splitPattern.exec(outString))) {
 		const [_, silenceStart, silenceEnd] = silenceInfo;
+		const silenceMiddle = (parseInt(silenceEnd) - parseInt(silenceStart)) / 2;
 
 		const trackLength = parseInt(silenceStart) - lastTrackEnd;
 		if (trackLength < params.minSongLength) {
@@ -60,7 +61,7 @@ export async function autoSplitAudio(
 
 		const trackName =
 			params.trackNames?.[index] || `Track ${index.toString().padStart(2, "0")}`;
-		const trackStart = new Date(Math.max(0, lastTrackEnd * 1000)) // TODO: get silence middle
+		const trackStart = new Date(Math.max(0, lastTrackEnd * 1000))
 			.toISOString()
 			.substr(11, 8);
 
@@ -68,14 +69,14 @@ export async function autoSplitAudio(
 			ffmpegPath: params.ffmpegPath,
 			inputTrack: params.mergedTrack,
 			start: trackStart,
-			length: trackLength + 0.4, // TODO: get silence middle
+			length: trackLength + silenceMiddle,
 			artist: params.artist,
 			album: params.album,
 			outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
 		});
 
 		index++;
-		lastTrackEnd = parseInt(silenceEnd);
+		lastTrackEnd = parseInt(silenceEnd) - silenceMiddle;
 	}
 
 	const trackName =
