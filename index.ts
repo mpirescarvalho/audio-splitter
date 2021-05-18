@@ -1,6 +1,7 @@
+import path from "path";
 import cp from "child_process";
 
-export type SplitterParams = {
+export type AutoSplitAudioParams = {
 	mergedTrack: string; // source track
 	outputDir: string; // directory, where to put the tracks (with all the required slashes)
 	ffmpegPath?: string; // path to ffmpeg.exe
@@ -12,7 +13,9 @@ export type SplitterParams = {
 	minSongLength?: number; // (sec) if a track is sorter than this, we merge it to the previous track
 };
 
-export async function splitAudio(params: SplitterParams): Promise<void> {
+export async function autoSplitAudio(
+	params: AutoSplitAudioParams
+): Promise<void> {
 	params.ffmpegPath = params.ffmpegPath || "ffmpeg";
 	params.maxNoiseLevel = params.maxNoiseLevel || -40;
 	params.minSilenceLength = params.minSilenceLength || 0.2;
@@ -47,8 +50,6 @@ export async function splitAudio(params: SplitterParams): Promise<void> {
 	var index = 0;
 	while ((silenceInfo = splitPattern.exec(outString))) {
 		const [_, silenceStart, silenceEnd] = silenceInfo;
-		console.log("silenceStart", silenceStart);
-		console.log("silenceEnd", silenceEnd);
 
 		const trackLength = parseInt(silenceStart) - lastTrackEnd;
 		if (trackLength < params.minSongLength) {
@@ -59,37 +60,58 @@ export async function splitAudio(params: SplitterParams): Promise<void> {
 
 		const trackName =
 			params.trackNames?.[index] || `Track ${index.toString().padStart(2, "0")}`;
-		const ss = new Date(Math.max(0, lastTrackEnd * 1000)) // TODO: get silence middle
+		const trackStart = new Date(Math.max(0, lastTrackEnd * 1000)) // TODO: get silence middle
 			.toISOString()
 			.substr(11, 8);
 
-		const splitOptions = [
-			"-ss",
-			ss,
-			"-t",
-			// TODO: get silence middle
-			(trackLength + 0.4).toString(),
-			"-i",
-			params.mergedTrack,
-			"-metadata",
-			`title="${trackName}"`,
-			params.artist ? `-metadata artist="${params.artist}"` : "",
-			params.album ? `-metadata album="${params.album}"` : "",
-			"-c:a",
-			"copy",
-			`${params.outputDir + trackName}.${fileExtension}`,
-		].filter((param) => !!param);
-
-		console.log(trackName, splitOptions.join(" "));
-
-		cp.spawnSync(params.ffmpegPath, splitOptions, {
-			stdio: "inherit",
-			shell: process.env.ComSpec,
+		splitAudio({
+			ffmpegPath: params.ffmpegPath,
+			inputTrack: params.mergedTrack,
+			start: trackStart,
+			length: trackLength + 0.4, // TODO: get silence middle
+			artist: params.artist,
+			album: params.album,
+			outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
 		});
 
 		index++;
 		lastTrackEnd = parseInt(silenceEnd);
 	}
+}
+
+export type SplitAudioParams = {
+	ffmpegPath: string;
+	inputTrack: string;
+	start: number | string;
+	length: number;
+	artist?: string;
+	album?: string;
+	outputTrack: string;
+};
+
+export function splitAudio(params: SplitAudioParams) {
+	const title = path.parse(params.outputTrack).name;
+
+	const splitOptions = [
+		"-ss",
+		params.start.toString(),
+		"-t",
+		params.length.toString(),
+		"-i",
+		params.inputTrack,
+		"-metadata",
+		`title="${title}"`,
+		params.artist ? `-metadata artist="${params.artist}"` : "",
+		params.album ? `-metadata album="${params.album}"` : "",
+		"-c:a",
+		"copy",
+		params.outputTrack,
+	].filter((param) => !!param);
+
+	cp.spawnSync(params.ffmpegPath, splitOptions, {
+		stdio: "inherit",
+		shell: process.env.ComSpec,
+	});
 }
 
 //TODO: last track is missing
