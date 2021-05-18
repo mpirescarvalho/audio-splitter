@@ -77,6 +77,23 @@ export async function autoSplitAudio(
 		index++;
 		lastTrackEnd = parseInt(silenceEnd);
 	}
+
+	const trackName =
+		params.trackNames?.[index] || `Track ${index.toString().padStart(2, "0")}`;
+	const trackStart = new Date(Math.max(0, lastTrackEnd * 1000))
+		.toISOString()
+		.substr(11, 8);
+
+	//split last track
+	splitAudio({
+		ffmpegPath: params.ffmpegPath,
+		inputTrack: params.mergedTrack,
+		start: trackStart,
+		length: 999999,
+		artist: params.artist,
+		album: params.album,
+		outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
+	});
 }
 
 export type SplitAudioParams = {
@@ -113,5 +130,3 @@ export function splitAudio(params: SplitAudioParams) {
 		shell: process.env.ComSpec,
 	});
 }
-
-//TODO: last track is missing
