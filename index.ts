@@ -42,56 +42,64 @@ export async function splitAudio(params: SplitAudioParams): Promise<void> {
 
 	const outString = out.output.toString();
 
+	const tracks: Array<{
+		trackStart: number;
+		trackEnd: number;
+		trackLength: number;
+	}> = [];
+
 	const splitPattern = /silence_start: ([\w\.]+)[\s\S]+?silence_end: ([\w\.]+)/g;
 	var silenceInfo: RegExpExecArray | null;
-	var lastTrackEnd = 0;
-	var index = 0;
+
 	while ((silenceInfo = splitPattern.exec(outString))) {
 		const [_, silenceStart, silenceEnd] = silenceInfo;
-		const silenceMiddle = (parseInt(silenceEnd) - parseInt(silenceStart)) / 2;
+		const silenceLength = parseInt(silenceEnd) - parseInt(silenceStart);
+		const silenceMiddle = silenceLength / 2;
+		const trackStart = tracks[tracks.length - 1]?.trackEnd || 0;
+		const trackLength = parseInt(silenceStart) - trackStart + silenceMiddle;
+		const trackEnd = trackStart + trackLength;
 
-		const trackLength = parseInt(silenceStart) - lastTrackEnd;
-		if (trackLength < params.minSongLength) {
-			// TODO: seems like short trackings is beeing merging in the next one
+		if (trackLength >= params.minSongLength || tracks.length === 0) {
+			tracks.push({
+				trackStart,
+				trackEnd,
+				trackLength,
+			});
+		} else {
 			// song is too short -> merge it to the previous one
-			continue;
+			const lastTrack = tracks[tracks.length - 1];
+			lastTrack.trackEnd = trackEnd;
+			lastTrack.trackLength = lastTrack.trackEnd - lastTrack.trackStart;
+			tracks[tracks.length - 1] = lastTrack;
 		}
+	}
 
+	// add last track
+	if (tracks.length > 0) {
+		tracks.push({
+			trackStart: tracks[tracks.length - 1]!.trackStart,
+			trackEnd: 999999,
+			trackLength: 999999,
+		});
+	}
+
+	// split the tracks
+	tracks.forEach((track, index) => {
 		const trackName =
 			params.trackNames?.[index] || `Track ${index.toString().padStart(2, "0")}`;
-		const trackStart = new Date(Math.max(0, lastTrackEnd * 1000))
+		const trackStart = new Date(Math.max(0, track.trackStart * 1000))
 			.toISOString()
 			.substr(11, 8);
 
 		extractAudio({
-			ffmpegPath: params.ffmpegPath,
+			ffmpegPath: params.ffmpegPath!,
 			inputTrack: params.mergedTrack,
 			start: trackStart,
-			length: trackLength + silenceMiddle,
+			length: track.trackLength,
 			artist: params.artist,
 			album: params.album,
 			outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
 		});
-
-		index++;
-		lastTrackEnd = parseInt(silenceEnd) - silenceMiddle;
-	}
-
-	const trackName =
-		params.trackNames?.[index] || `Track ${index.toString().padStart(2, "0")}`;
-	const trackStart = new Date(Math.max(0, lastTrackEnd * 1000))
-		.toISOString()
-		.substr(11, 8);
-
-	//extract last track
-	extractAudio({
-		ffmpegPath: params.ffmpegPath,
-		inputTrack: params.mergedTrack,
-		start: trackStart,
-		length: 999999,
-		artist: params.artist,
-		album: params.album,
-		outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
 	});
 }
 
