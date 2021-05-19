@@ -101,13 +101,13 @@ export function splitAudio(params: SplitAudioParams) {
 }
 
 export type ExtractAudioParams = {
-	ffmpegPath: string;
-	inputTrack: string;
-	start: number | string;
-	length: number;
-	artist?: string;
-	album?: string;
-	outputTrack: string;
+	ffmpegPath: string; // path to ffmpeg.exe
+	inputTrack: string; // source track
+	start: number | string; // start seconds in the source
+	length: number; // duration to extract
+	artist?: string; // meta info, optional
+	album?: string; // meta info, optional
+	outputTrack: string; // output track
 };
 
 export function extractAudio(params: ExtractAudioParams) {
