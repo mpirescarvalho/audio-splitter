@@ -81,7 +81,8 @@ export function splitAudio(params: SplitAudioParams) {
 	// split the tracks
 	tracks.forEach((track, index) => {
 		const trackName =
-			params.trackNames?.[index] || `Track ${index.toString().padStart(2, "0")}`;
+			params.trackNames?.[index] ||
+			`Track ${(index + 1).toString().padStart(2, "0")}`;
 		const trackStart = new Date(Math.max(0, track.trackStart * 1000))
 			.toISOString()
 			.substr(11, 8);
