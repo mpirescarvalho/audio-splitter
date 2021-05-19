@@ -13,7 +13,7 @@ export type SplitAudioParams = {
 	minSongLength?: number; // (sec) if a track is sorter than this, we merge it to the previous track
 };
 
-export async function splitAudio(params: SplitAudioParams): Promise<void> {
+export function splitAudio(params: SplitAudioParams) {
 	params.ffmpegPath = params.ffmpegPath || "ffmpeg";
 	params.maxNoiseLevel = params.maxNoiseLevel || -40;
 	params.minSilenceLength = params.minSilenceLength || 0.2;
