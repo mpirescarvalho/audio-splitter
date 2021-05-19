@@ -45,7 +45,6 @@ export async function splitAudio(params: SplitAudioParams): Promise<void> {
 	const tracks: Array<{
 		trackStart: number;
 		trackEnd: number;
-		trackLength: number;
 	}> = [];
 
 	const splitPattern = /silence_start: ([\w\.]+)[\s\S]+?silence_end: ([\w\.]+)/g;
@@ -53,23 +52,20 @@ export async function splitAudio(params: SplitAudioParams): Promise<void> {
 
 	while ((silenceInfo = splitPattern.exec(outString))) {
 		const [_, silenceStart, silenceEnd] = silenceInfo;
-		const silenceLength = parseInt(silenceEnd) - parseInt(silenceStart);
-		const silenceMiddle = silenceLength / 2;
+		const silenceMiddle = (parseInt(silenceEnd) + parseInt(silenceStart)) / 2;
 		const trackStart = tracks[tracks.length - 1]?.trackEnd || 0;
-		const trackLength = parseInt(silenceStart) - trackStart + silenceMiddle;
-		const trackEnd = trackStart + trackLength;
+		const trackEnd = silenceMiddle;
+		const trackLength = trackEnd - trackStart;
 
 		if (trackLength >= params.minSongLength || tracks.length === 0) {
 			tracks.push({
 				trackStart,
 				trackEnd,
-				trackLength,
 			});
 		} else {
 			// song is too short -> merge it to the previous one
 			const lastTrack = tracks[tracks.length - 1];
 			lastTrack.trackEnd = trackEnd;
-			lastTrack.trackLength = lastTrack.trackEnd - lastTrack.trackStart;
 			tracks[tracks.length - 1] = lastTrack;
 		}
 	}
@@ -79,7 +75,6 @@ export async function splitAudio(params: SplitAudioParams): Promise<void> {
 		tracks.push({
 			trackStart: tracks[tracks.length - 1]!.trackStart,
 			trackEnd: 999999,
-			trackLength: 999999,
 		});
 	}
 
@@ -90,12 +85,13 @@ export async function splitAudio(params: SplitAudioParams): Promise<void> {
 		const trackStart = new Date(Math.max(0, track.trackStart * 1000))
 			.toISOString()
 			.substr(11, 8);
+		const trackLength = track.trackEnd - track.trackStart;
 
 		extractAudio({
 			ffmpegPath: params.ffmpegPath!,
 			inputTrack: params.mergedTrack,
 			start: trackStart,
-			length: track.trackLength,
+			length: trackLength,
 			artist: params.artist,
 			album: params.album,
 			outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
