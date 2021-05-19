@@ -1,7 +1,7 @@
 import path from "path";
 import cp from "child_process";
 
-export type AutoSplitAudioParams = {
+export type SplitAudioParams = {
 	mergedTrack: string; // source track
 	outputDir: string; // directory, where to put the tracks (with all the required slashes)
 	ffmpegPath?: string; // path to ffmpeg.exe
@@ -13,9 +13,7 @@ export type AutoSplitAudioParams = {
 	minSongLength?: number; // (sec) if a track is sorter than this, we merge it to the previous track
 };
 
-export async function autoSplitAudio(
-	params: AutoSplitAudioParams
-): Promise<void> {
+export async function splitAudio(params: SplitAudioParams): Promise<void> {
 	params.ffmpegPath = params.ffmpegPath || "ffmpeg";
 	params.maxNoiseLevel = params.maxNoiseLevel || -40;
 	params.minSilenceLength = params.minSilenceLength || 0.2;
@@ -65,7 +63,7 @@ export async function autoSplitAudio(
 			.toISOString()
 			.substr(11, 8);
 
-		splitAudio({
+		extractAudio({
 			ffmpegPath: params.ffmpegPath,
 			inputTrack: params.mergedTrack,
 			start: trackStart,
@@ -85,8 +83,8 @@ export async function autoSplitAudio(
 		.toISOString()
 		.substr(11, 8);
 
-	//split last track
-	splitAudio({
+	//extract last track
+	extractAudio({
 		ffmpegPath: params.ffmpegPath,
 		inputTrack: params.mergedTrack,
 		start: trackStart,
@@ -97,7 +95,7 @@ export async function autoSplitAudio(
 	});
 }
 
-export type SplitAudioParams = {
+export type ExtractAudioParams = {
 	ffmpegPath: string;
 	inputTrack: string;
 	start: number | string;
@@ -107,10 +105,10 @@ export type SplitAudioParams = {
 	outputTrack: string;
 };
 
-export function splitAudio(params: SplitAudioParams) {
+export function extractAudio(params: ExtractAudioParams) {
 	const title = path.parse(params.outputTrack).name;
 
-	const splitOptions = [
+	const ffmpegOptions = [
 		"-ss",
 		params.start.toString(),
 		"-t",
@@ -126,7 +124,7 @@ export function splitAudio(params: SplitAudioParams) {
 		params.outputTrack,
 	].filter((param) => !!param);
 
-	cp.spawnSync(params.ffmpegPath, splitOptions, {
+	cp.spawnSync(params.ffmpegPath, ffmpegOptions, {
 		stdio: "inherit",
 		shell: process.env.ComSpec,
 	});
