@@ -6,7 +6,8 @@
 	"types": "dist",
 	"scripts": {
 		"dev": "tsnd dev/index.ts",
-		"build": "tsc"
+		"build": "tsc",
+		"publish": "npm run build && npm publish"
 	},
 	"repository": {
 		"type": "git",
