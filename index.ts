@@ -40,6 +40,10 @@ export function splitAudio(params: SplitAudioParams) {
 		}
 	);
 
+	if (out.status !== 0) {
+		throw new Error(out.stderr.toString());
+	}
+
 	const outString = out.output.toString();
 
 	const tracks: Array<{
@@ -129,8 +133,12 @@ export function extractAudio(params: ExtractAudioParams) {
 		params.outputTrack,
 	].filter((param) => !!param);
 
-	cp.spawnSync(params.ffmpegPath, ffmpegOptions, {
+	const out = cp.spawnSync(params.ffmpegPath, ffmpegOptions, {
 		stdio: "inherit",
 		shell: process.env.ComSpec,
 	});
+
+	if (out.status !== 0) {
+		throw new Error(out.stderr.toString());
+	}
 }
