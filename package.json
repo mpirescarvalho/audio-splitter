@@ -1,6 +1,6 @@
 {
 	"name": "audio-splitter",
-	"version": "1.0.0",
+	"version": "1.0.1",
 	"description": "Simple package to split a merged audio track to parts by silence analysis",
 	"main": "dist/index.js",
 	"types": "dist",

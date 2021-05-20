@@ -118,6 +118,7 @@ export function extractAudio(params: ExtractAudioParams) {
 	const title = path.parse(params.outputTrack).name;
 
 	const ffmpegOptions = [
+		"-y",
 		"-ss",
 		params.start.toString(),
 		"-t",
