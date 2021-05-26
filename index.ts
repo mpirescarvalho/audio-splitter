@@ -1,5 +1,5 @@
 import path from "path";
-import cp from "child_process";
+import ffmpeg from "fluent-ffmpeg";
 
 export type SplitAudioParams = {
 	mergedTrack: string; // source track
@@ -13,94 +13,93 @@ export type SplitAudioParams = {
 	minSongLength?: number; // (sec) if a track is sorter than this, we merge it to the previous track
 };
 
-export function splitAudio(params: SplitAudioParams) {
-	params.ffmpegPath = params.ffmpegPath || "ffmpeg";
-	params.maxNoiseLevel = params.maxNoiseLevel || -40;
-	params.minSilenceLength = params.minSilenceLength || 0.2;
-	params.minSongLength = params.minSongLength || 20;
+export async function splitAudio(params: SplitAudioParams): Promise<void> {
+	return new Promise((resolve, reject) => {
+		params.ffmpegPath = params.ffmpegPath || "ffmpeg";
+		params.maxNoiseLevel = params.maxNoiseLevel || -40;
+		params.minSilenceLength = params.minSilenceLength || 0.2;
+		params.minSongLength = params.minSongLength || 20;
 
-	const extensionMatch = params.mergedTrack.match(/\w+$/);
-	if (!extensionMatch) throw new Error(`invalid 'mergedTrack' param`);
-	const fileExtension = extensionMatch[0];
+		const extensionMatch = params.mergedTrack.match(/\w+$/);
+		if (!extensionMatch) throw new Error(`invalid 'mergedTrack' param`);
+		const fileExtension = extensionMatch[0];
 
-	var out = cp.spawnSync(
-		params.ffmpegPath,
-		[
-			"-i",
-			params.mergedTrack,
-			"-af",
-			`silencedetect=noise=${params.maxNoiseLevel}dB:d=${params.minSilenceLength}`,
-			"-f",
-			"null",
-			"-",
-		],
-		{
-			stdio: "pipe",
-			shell: process.env.ComSpec,
-		}
-	);
+		let ffmpegCommand = ffmpeg()
+			.setFfmpegPath(params.ffmpegPath)
+			.input(params.mergedTrack)
+			.audioFilters(
+				`silencedetect=noise=${params.maxNoiseLevel}dB:d=${params.minSilenceLength}`
+			)
+			.outputFormat("null");
 
-	if (out.status !== 0) {
-		throw new Error(out.stderr.toString());
-	}
+		ffmpegCommand
+			.on("start", (cmdline) => console.log(cmdline))
+			.on("end", (_, silenceDetectResult) => {
+				const tracks: Array<{
+					trackStart: number;
+					trackEnd: number;
+				}> = [];
 
-	const outString = out.output.toString();
+				const splitPattern =
+					/silence_start: ([\w\.]+)[\s\S]+?silence_end: ([\w\.]+)/g;
+				var silenceInfo: RegExpExecArray | null;
 
-	const tracks: Array<{
-		trackStart: number;
-		trackEnd: number;
-	}> = [];
+				while ((silenceInfo = splitPattern.exec(silenceDetectResult))) {
+					const [_, silenceStart, silenceEnd] = silenceInfo;
+					const silenceMiddle = (parseInt(silenceEnd) + parseInt(silenceStart)) / 2;
+					const trackStart = tracks[tracks.length - 1]?.trackEnd || 0;
+					const trackEnd = silenceMiddle;
+					const trackLength = trackEnd - trackStart;
 
-	const splitPattern = /silence_start: ([\w\.]+)[\s\S]+?silence_end: ([\w\.]+)/g;
-	var silenceInfo: RegExpExecArray | null;
+					if (trackLength >= params.minSongLength! || tracks.length === 0) {
+						tracks.push({
+							trackStart,
+							trackEnd,
+						});
+					} else {
+						// song is too short -> merge it to the previous one
+						const lastTrack = tracks[tracks.length - 1];
+						lastTrack.trackEnd = trackEnd;
+						tracks[tracks.length - 1] = lastTrack;
+					}
+				}
 
-	while ((silenceInfo = splitPattern.exec(outString))) {
-		const [_, silenceStart, silenceEnd] = silenceInfo;
-		const silenceMiddle = (parseInt(silenceEnd) + parseInt(silenceStart)) / 2;
-		const trackStart = tracks[tracks.length - 1]?.trackEnd || 0;
-		const trackEnd = silenceMiddle;
-		const trackLength = trackEnd - trackStart;
+				// add last track
+				if (tracks.length > 0) {
+					tracks.push({
+						trackStart: tracks[tracks.length - 1]!.trackStart,
+						trackEnd: 999999,
+					});
+				}
 
-		if (trackLength >= params.minSongLength || tracks.length === 0) {
-			tracks.push({
-				trackStart,
-				trackEnd,
-			});
-		} else {
-			// song is too short -> merge it to the previous one
-			const lastTrack = tracks[tracks.length - 1];
-			lastTrack.trackEnd = trackEnd;
-			tracks[tracks.length - 1] = lastTrack;
-		}
-	}
+				// split the tracks
+				const promises = tracks.map((track, index) => {
+					const trackName =
+						params.trackNames?.[index] ||
+						`Track ${(index + 1).toString().padStart(2, "0")}`;
+					const trackStart = new Date(Math.max(0, track.trackStart * 1000))
+						.toISOString()
+						.substr(11, 8);
+					const trackLength = track.trackEnd - track.trackStart;
 
-	// add last track
-	if (tracks.length > 0) {
-		tracks.push({
-			trackStart: tracks[tracks.length - 1]!.trackStart,
-			trackEnd: 999999,
-		});
-	}
+					return extractAudio({
+						ffmpegPath: params.ffmpegPath!,
+						inputTrack: params.mergedTrack,
+						start: trackStart,
+						length: trackLength,
+						artist: params.artist,
+						album: params.album,
+						outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
+					});
+				});
 
-	// split the tracks
-	tracks.forEach((track, index) => {
-		const trackName =
-			params.trackNames?.[index] ||
-			`Track ${(index + 1).toString().padStart(2, "0")}`;
-		const trackStart = new Date(Math.max(0, track.trackStart * 1000))
-			.toISOString()
-			.substr(11, 8);
-		const trackLength = track.trackEnd - track.trackStart;
-
-		extractAudio({
-			ffmpegPath: params.ffmpegPath!,
-			inputTrack: params.mergedTrack,
-			start: trackStart,
-			length: trackLength,
-			artist: params.artist,
-			album: params.album,
-			outputTrack: `${params.outputDir + trackName}.${fileExtension}`,
-		});
+				Promise.all(promises)
+					.then(() => resolve())
+					.catch(reject);
+			})
+			.on("error", reject)
+			.output("-")
+			.run();
 	});
 }
 
@@ -114,32 +113,37 @@ export type ExtractAudioParams = {
 	outputTrack: string; // output track
 };
 
-export function extractAudio(params: ExtractAudioParams) {
-	const title = path.parse(params.outputTrack).name;
+export async function extractAudio(params: ExtractAudioParams): Promise<void> {
+	return new Promise((resolve, reject) => {
+		const title = path.parse(params.outputTrack).name;
 
-	const ffmpegOptions = [
-		"-y",
-		"-ss",
-		params.start.toString(),
-		"-t",
-		params.length.toString(),
-		"-i",
-		params.inputTrack,
-		"-metadata",
-		`title="${title}"`,
-		params.artist ? `-metadata artist="${params.artist}"` : "",
-		params.album ? `-metadata album="${params.album}"` : "",
-		"-c:a",
-		"copy",
-		params.outputTrack,
-	].filter((param) => !!param);
+		let ffmpegCommand = ffmpeg()
+			.setFfmpegPath(params.ffmpegPath)
+			.input(params.inputTrack)
+			.setStartTime(params.start)
+			.setDuration(params.length)
+			.noVideo()
+			.addOutputOptions("-metadata", `title="${title}"`);
 
-	const out = cp.spawnSync(params.ffmpegPath, ffmpegOptions, {
-		stdio: "inherit",
-		shell: process.env.ComSpec,
+		if (params.artist) {
+			ffmpegCommand = ffmpegCommand.addOutputOptions(
+				"-metadata",
+				`artist="${params.artist}"`
+			);
+		}
+
+		if (params.album) {
+			ffmpegCommand = ffmpegCommand.addOutputOptions(
+				"-metadata",
+				`album="${params.album}"`
+			);
+		}
+
+		ffmpegCommand
+			.outputOptions("-c:a", "copy")
+			.on("start", (cmdline) => console.log(cmdline))
+			.on("end", resolve)
+			.on("error", reject)
+			.saveToFile(params.outputTrack);
 	});
-
-	if (out.status !== 0) {
-		throw new Error(out.stderr.toString());
-	}
 }
