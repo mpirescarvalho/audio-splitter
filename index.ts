@@ -67,7 +67,7 @@ export async function splitAudio(params: SplitAudioParams): Promise<void> {
 				// add last track
 				if (tracks.length > 0) {
 					tracks.push({
-						trackStart: tracks[tracks.length - 1]!.trackStart,
+						trackStart: tracks[tracks.length - 1]!.trackEnd,
 						trackEnd: 999999,
 					});
 				}
